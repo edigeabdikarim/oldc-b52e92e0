@@ -95,6 +95,13 @@
   .seg-new{ color:var(--band6); }
   .seg-new:hover:not(.active){ background:rgba(91,84,200,.10); color:var(--band6); }
   .seg-new.active{ background:var(--band6); color:#fff; }
+  /* Кнопка «деньги» не фильтр — она ничего не считает, а только прячет столбцы.
+     Поэтому стоит отдельной группой и нейтральным цветом, без подсветки «выбрано». */
+  .seg-moneybox{ margin-left:auto; }
+  .seg-money{ color:var(--ink2); }
+  .seg-money:hover{ background:var(--accent-soft); color:var(--ink); }
+  .seg-money.off{ background:var(--ink3); color:#fff; }
+
   .badge-new{ display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px;
     background:rgba(91,84,200,.12); color:var(--band6); font-size:11px; font-weight:700;
     text-transform:uppercase; letter-spacing:.05em; vertical-align:2px; }
@@ -204,7 +211,7 @@
 <header class="topbar"><div class="topbar-inner">
   <div class="title-row"><div class="title-block">
     <h1>Старые коллекции</h1>
-    <p class="asof">обновлено 16 августа, 16:32 · продажи по 13.08.2026 · старт 01.01.2026</p>
+    <p class="asof">обновлено 16 августа, 16:51 · продажи по 13.08.2026 · старт 01.01.2026</p>
   </div></div>
   <div class="controls">
     <span class="ctl-label">Коллекция</span>
@@ -233,6 +240,9 @@
       <button class="seg-btn" type="button" data-pol="Жен.">Жен.</button>
       <button class="seg-btn active" type="button" data-pol="Все">Все</button>
     </div>
+    <div class="segmented seg-moneybox">
+      <button class="seg-btn seg-money" type="button" id="moneyBtn" aria-pressed="true">Скрыть деньги</button>
+    </div>
   </div>
   <p class="filter-note" id="filterNote" hidden></p>
   <div class="tabs" id="viewTabs" role="tablist" aria-label="Разделы">
@@ -249,7 +259,9 @@ var BRAND_LIST = ["3","Носкии","Платье к/р DUNO","AERONAUTICA","AF
 var OLD_COLLS = ["26Z","25L","25Z","24L","24Z","23L","23Z","22L","22Z","21L","21Z","20L","20Z"];
 var NEW_COLLS = ["27Z"];
 // coll: «Старые» (все, кроме новой) либо имя одной коллекции.
-var ST = { coll:'Старые', season:'Все', pol:'Все', brand:null, view:'kpi', dim:'brand' };
+// money: показывать ли деньги. Прячутся ровно две вещи — выручка и её доля;
+// проценты продаж и средняя скидка остаются, они не сумма.
+var ST = { coll:'Старые', season:'Все', pol:'Все', brand:null, view:'kpi', dim:'brand', money:true };
 
 // ─── правила доступности фильтров, теми же строками, что проверены тестами ───
 /**
@@ -428,11 +440,11 @@ function renderKpi(t, arts){
   var avg=t.sumK>0 ? pct1(1-safeDiv(t.sumL,t.sumK)) : '—';
   var tiles=[
     { label:'Было', value:fmt(t.in), sub:'остаток на старте + приход' },
-    { label:'Продано', value:fmt(soldNet), sub:pct(safeDiv(soldNet,t.in))+' от того, что было' },
-    { label:'Выручка, млн ₸', value:mln(revenue(t)), sub:'после возвратов' },
-    { label:'Осталось', value:fmt(t.rem), sub:negRemNote(arts) },
-    { label:'Средняя скидка', value:avg, sub:'по проданному' }
+    { label:'Продано', value:fmt(soldNet), sub:pct(safeDiv(soldNet,t.in))+' от того, что было' }
   ];
+  if (ST.money) tiles.push({ label:'Выручка, млн ₸', value:mln(revenue(t)), sub:'после возвратов' });
+  tiles.push({ label:'Осталось', value:fmt(t.rem), sub:negRemNote(arts) });
+  tiles.push({ label:'Средняя скидка', value:avg, sub:'по проданному' });
   var h='<section class="kpi-grid">', i;
   for (i=0;i<tiles.length;i++)
     h+='<div class="kpi-tile"><span class="kpi-accent"></span><div class="kpi-value">'+tiles[i].value+
@@ -518,18 +530,19 @@ function ratingRowHtml(r,o){
     '<td>'+fmt(r.soldNet)+'</td>'+
     '<td class="pctcell'+(o.lead?' lead':'')+'"><div class="pctrow"><span class="pcttrack"><span class="pctfill" style="width:'+w+'%"></span></span>'+
       '<span class="pctnum">'+pct(r.soldPct)+'</span></div></td>'+
-    '<td>'+mln(r.rev)+'</td>'+
-    '<td>'+r.revShare+'</td>'+
+    (ST.money ? '<td>'+mln(r.rev)+'</td><td>'+r.revShare+'</td>' : '')+
     '<td>'+fmt(r.rem)+negNote+'</td>'+
     '<td>'+pct(r.remPct)+'</td>'+
     '<td>'+(r.disc==null?'—':pct1(r.disc))+'</td>'+
   '</tr>';
 }
 function ratingHead(){
-  var cols=['Название','Было','Продано шт','Продано %','Выручка, млн ₸','Доля','Остаток шт','Остаток %','Ср.скидка'];
+  var cols=['Название','Было','Продано шт','Продано %'];
+  if (ST.money) cols=cols.concat(['Выручка, млн ₸','Доля']);
+  cols=cols.concat(['Остаток шт','Остаток %','Ср.скидка']);
   var h='<tr>',i,cls;
   for (i=0;i<cols.length;i++){
-    cls = i===3?' class="colpct"':(i===4?' class="colrev"':'');
+    cls = i===3?' class="colpct"':(i===4&&ST.money?' class="colrev"':'');
     h+='<th'+cls+'>'+cols[i]+'</th>';
   }
   return h+'</tr>';
@@ -722,6 +735,16 @@ function boot(){
     var b=e.target.closest ? e.target.closest('[data-pol]') : null;
     if (!b || b.disabled) return;
     ST.pol=b.getAttribute('data-pol');
+    render();
+  });
+  // Деньги прячутся, чтобы дашборд можно было показать через плечо: скрыты выручка
+  // и её доля. Ничего не пересчитывается — те же числа, просто без денежных клеток.
+  el('moneyBtn').addEventListener('click', function(){
+    ST.money=!ST.money;
+    var b=el('moneyBtn');
+    b.textContent=ST.money?'Скрыть деньги':'Показать деньги';
+    b.className='seg-btn seg-money'+(ST.money?'':' off');
+    b.setAttribute('aria-pressed', ST.money?'true':'false');
     render();
   });
   el('viewTabs').addEventListener('click', function(e){
