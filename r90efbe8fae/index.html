@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <meta name="oldc-build" content="OLDC-CLOUD">
-<meta name="oldc-card" content="{&quot;builtMs&quot;:1791780232982,&quot;builtHuman&quot;:&quot;12 октября 2026, 09:43&quot;,&quot;dataDate&quot;:20261011,&quot;dataHuman&quot;:&quot;11 октября 2026&quot;,&quot;salesRows&quot;:25159,&quot;kind&quot;:&quot;OLDC-CLOUD&quot;}">
+<meta name="oldc-card" content="{&quot;builtMs&quot;:1791781616979,&quot;builtHuman&quot;:&quot;12 октября 2026, 10:06&quot;,&quot;dataDate&quot;:20261011,&quot;dataHuman&quot;:&quot;11 октября 2026&quot;,&quot;salesRows&quot;:25159,&quot;kind&quot;:&quot;OLDC-CLOUD&quot;}">
 <title>Сводная · старые коллекции</title>
 <style>
 :root{
@@ -582,7 +582,7 @@
          НА ЭКРАНЕ СЕЙЧАС. Дата сборки файла тут стояла раньше и спорила с датой
          свежих данных — владелец справедливо спросил, по какое число данные. -->
     <p class="asof" id="asof"></p>
-    <p class="build-card">Собрано в облаке 12 октября 2026, 09:43 по Астане · данные по 11 октября 2026 · строк продаж 25159</p>
+    <p class="build-card">Собрано в облаке 12 октября 2026, 10:06 по Астане · данные по 11 октября 2026 · строк продаж 25159</p>
   </div></div>
 </div></header>
 <div class="layout">
@@ -4785,7 +4785,7 @@ var SOURCE_1C = {"seam":"2026-09-11","salesLast":"2026-09-10","arrivalsLast":"20
    будет облако, а не читатель. */
 var ENDPOINT = "";
 var COLL_QUERY = "26L,26LZ,27Z,26Z,25L,25Z,24L,24Z,23L,23Z,22L,22Z,21L,21Z,20L,20Z,25LZ,25ZL,25LL,25LLZ,24LZ,24ZL,26ZL,23LZ,23ZL,22LZ,24ZTHUNDER,24LZSTRATO,24ZPALLADIUM,23ZVBMTS0007V3502658L";
-var BUILT_MS = 1791780232982;
+var BUILT_MS = 1791781616979;
 /**
  * Клиент сводной. Считает не сам: вся арифметика живёт в src/core.js (OLDC),
  * тем же текстом, каким она проверена тестами и каким считает сборка на
@@ -8768,9 +8768,9 @@ boot();
 /**
  * «Рейтинг» для РОПов: при выбранном магазине строки считаются по СКЛАДУ.
  *
- * Только для страницы РОПов (решение владельца 12.10.2026). Уезжает в неё
- * ключом `--rop` ПОСЛЕ svodnaya_client.js и подменяет `viewRating`; страница
- * руководителя этого файла не содержит вовсе и не меняется ни на байт.
+ * Только для страницы РОПов (решение владельца 12.10.2026). tools/build_rop.js
+ * дописывает этот файл ПОСЛЕ кода страницы, и он подменяет `viewRating`;
+ * страница руководителя этого файла не содержит вовсе и не меняется ни на байт.
  *
  * Зачем. Рейтинг с выбранным магазином собирается из одних чеков, и бренд,
  * который лежит в магазине, но не продаётся, в таблицу не попадал. РОПу же
@@ -8781,6 +8781,10 @@ boot();
  *
  * и сходится в каждой строке точно. «Продано» здесь СКЛАДСКОЕ (решение
  * владельца 12.10.2026) — разница с чеками названа числом под таблицей.
+ * «Пришло» делится на новый товар, с ЦС, из магазинов (и с технических);
+ * «Уехало» — на ЦС, в магазины (и на технические). Перенос между залом
+ * и своей подсобкой («ЦС2 Астана» → «Астана») не считается ни там, ни там
+ * (решения владельца 12.10.2026).
  *
  * Как разложено по брендам, не трогая общий расчёт. Складской расчёт
  * (`StockFlow.buildFlow`) умеет резать только по местам. Он линеен по вещам:
@@ -8846,7 +8850,7 @@ function ropKeyOf(dim, ix, cubeIt) {
 }
 
 /**
- * Строки таблицы для выбранного магазина: { имя: слагаемые периода }.
+ * Строки таблицы для выбранного магазина: { имя: { c: слагаемые, sp: разбивка } }.
  * null — посчитать нельзя, рисуется прежний рейтинг.
  */
 function ropStockRows() {
@@ -8858,25 +8862,37 @@ function ropStockRows() {
   var total = whole.byPlace[ST.store];
   if (!total) return null;
 
-  var flows = ropFlows();
-  var rows = {}, k;
-  for (k in flows) {
-    if (!Object.prototype.hasOwnProperty.call(flows, k)) continue;
-    var c = flows[k].period(p.from, p.to).byPlace[ST.store];
-    if (c) rows[k] = c;
+  var cache = ropFlows();
+  var rows = {}, k, splitOk = true, internalOk = true;
+  for (k in cache.flows) {
+    if (!Object.prototype.hasOwnProperty.call(cache.flows, k)) continue;
+    var c = cache.flows[k].period(p.from, p.to).byPlace[ST.store];
+    if (!c) continue;
+    var sp = ropMoveSplit(cache.moves[k], ST.store, p.from, p.to);
+    // Сторож разбивки: части обязаны сложиться в числа основного расчёта.
+    // Правила дат и количеств здесь повторены — разойдутся, и это станет видно
+    // здесь, а не неверной колонкой на экране.
+    if (Math.abs(sp.gaveSum - c.gave) > 0.01 || Math.abs(sp.gotSum - c.got) > 0.01) splitOk = false;
+    // Перенос внутри магазина вычитается из обеих сторон, только если в периоде
+    // он целиком: отправка и приёмка в один день (на 12.10.2026 так у всех
+    // таких строк). Иначе строка перестала бы сходиться.
+    if (Math.abs(sp.intGave - sp.intGot) > 0.01) internalOk = false;
+    rows[k] = { c: c, sp: sp };
   }
-  return { rows: rows, total: total, from: p.from, to: p.to, clipped: p.clipped, clippedEnd: p.clippedEnd };
+  return { rows: rows, total: total, from: p.from, to: p.to, clipped: p.clipped, clippedEnd: p.clippedEnd,
+    splitOk: splitOk, internalOk: internalOk };
 }
 
 /**
  * Расчёт по каждому ключу разреза. Не зависит ни от магазина, ни от периода —
  * только от фильтра товара и разреза, поэтому запоминается по ним: смена
  * магазина или периода берёт готовое (замер 12.10.2026: сборка всех расчётов
- * ~2 с, их чтение за период — доли секунды).
+ * ~2 с, их чтение за период — доли секунды). Рядом лежат перемещения ключа:
+ * по ним делятся «Пришло» и «Уехало».
  */
 function ropFlows() {
   var key = stockFilterKey() + '|' + ST.dim;
-  if (ROP_CACHE && ROP_CACHE.pack === STOCK_PACK && ROP_CACHE.key === key) return ROP_CACHE.flows;
+  if (ROP_CACHE && ROP_CACHE.pack === STOCK_PACK && ROP_CACHE.key === key) return ROP_CACHE;
 
   var cubeIts = (ROP_CACHE && ROP_CACHE.pack === STOCK_PACK && ROP_CACHE.cubeIts) || ropCubeItems();
   var keyOf = [], i;
@@ -8899,7 +8915,7 @@ function ropFlows() {
   put('sales', STOCK_PACK.sales, 2);
   put('arrivals', STOCK_PACK.arrivals, 2);
 
-  var flows = {}, k;
+  var flows = {}, moves = {}, k;
   for (k in buckets) {
     if (!Object.prototype.hasOwnProperty.call(buckets, k)) continue;
     var b = buckets[k];
@@ -8912,23 +8928,113 @@ function ropFlows() {
       start: back.start, moves: back.moves, sales: back.sales, arrivals: back.arrivals,
       shops: CUBE.stores, cubeLastDay: stockDateKey(CUBE.meta.lastSale)
     });
+    moves[k] = back.moves;
   }
-  ROP_CACHE = { key: key, pack: STOCK_PACK, cubeIts: cubeIts, flows: flows };
-  return flows;
+  ROP_CACHE = { key: key, pack: STOCK_PACK, cubeIts: cubeIts, flows: flows, moves: moves };
+  return ROP_CACHE;
 }
 
-/** Строка не пустая: хоть одно слагаемое не ноль. */
-function ropAlive(c) {
-  var f = ['start', 'arrived', 'got', 'gave', 'sold', 'left'];
-  for (var i = 0; i < f.length; i++) if (Math.abs(c[f[i]] || 0) > 0.005) return true;
-  return false;
+// ─── разбивка «Пришло» и «Уехало» по другой стороне перемещения ─────
+//
+// Правила дат и количеств — ТЕ ЖЕ, что в StockFlow.buildFlow (решения
+// владельца 25.08.2026): полный дубль строки схлопывается; отправка списывает
+// в день отправки; приёмка — в день получения, а без даты, но с проставленным
+// «получено» — днём отправки; без обоих «едет» и приёмки нет; события раньше
+// точки отсчёта и в сам её день не применяются. Совпадение с расчётом
+// сторожит сумма частей (ropStockRows) и самотест.
+
+var ROP_PLACE_CACHE = {};
+function ropPlace(raw) {
+  var key = String(raw == null ? '' : raw);
+  if (!Object.prototype.hasOwnProperty.call(ROP_PLACE_CACHE, key)) {
+    ROP_PLACE_CACHE[key] = Places.placeOf(raw, CUBE.stores);
+  }
+  return ROP_PLACE_CACHE[key];
 }
+
+function ropNum(v) {
+  var s = String(v == null ? '' : v);
+  var sp = [' ', String.fromCharCode(160), String.fromCharCode(8239)];
+  for (var i = 0; i < sp.length; i++) s = s.split(sp[i]).join('');
+  s = s.replace(',', '.');
+  if (!s) return 0;
+  var n = Number(s);
+  return isNaN(n) ? 0 : n;
+}
+
+function ropDate(v) {
+  var m = String(v == null ? '' : v).match(/^\s*(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+  if (!m) return null;
+  var y = Number(m[3]);
+  if (y < 100) y += 2000;
+  var mm = Number(m[2]), dd = Number(m[1]);
+  if (!(mm >= 1 && mm <= 12) || !(dd >= 1 && dd <= 31)) return null;
+  return String(y) + '-' + (mm < 10 ? '0' : '') + mm + '-' + (dd < 10 ? '0' : '') + dd;
+}
+
+/** Другая сторона перемещения: ЦС, магазин (зал, Garage, Kaspi), технический склад, неопознанное. */
+function ropSide(p) {
+  if (p.kind === 'central') return 'cs';
+  if (p.kind === 'tech') return 'tech';
+  if (p.kind === 'shop' || p.kind === 'garage' || p.kind === 'kaspi') return 'shops';
+  return 'other';
+}
+
+function ropMoveSplit(moves, store, from, to) {
+  var out = { gave: { cs: 0, shops: 0, tech: 0, other: 0 }, got: { cs: 0, shops: 0, tech: 0, other: 0 },
+    gaveSum: 0, gotSum: 0, intGave: 0, intGot: 0 };
+  if (!moves || !moves.rows || !moves.rows.length) return out;
+  var h = moves.header;
+  var cSend = h.indexOf('Дата отправки'), cGet = h.indexOf('Дата получения');
+  var cFrom = h.indexOf('Склад отправитель'), cTo = h.indexOf('Склад получатель');
+  var cQty = h.indexOf('Количество отправлено'), cGot = h.indexOf('Количество получено');
+  var startDate = isoOfPack(STOCK_PACK.start.date);
+  function counts(d) { return d && d > startDate && d >= from && d <= to; }
+  var seen = {};
+  for (var i = 0; i < moves.rows.length; i++) {
+    var row = moves.rows[i];
+    var key = row.join(String.fromCharCode(1));
+    if (seen[key]) continue;
+    seen[key] = 1;
+    var send = ropDate(row[cSend]), get = ropDate(row[cGet]);
+    if (send === null && get === null) continue;
+    var stillMoving = (get === null) && !(ropNum(row[cGot]) > 0);
+    if (get === null && !stillMoving) get = send;
+    var fp = ropPlace(row[cFrom]), tp = ropPlace(row[cTo]);
+    var q = ropNum(row[cQty]);
+    var inner = fp.group === tp.group;
+    if (fp.kind !== 'channel' && fp.group === store && counts(send)) {
+      out.gaveSum += q;
+      if (inner) out.intGave += q; else out.gave[ropSide(tp)] += q;
+    }
+    if (tp.kind !== 'channel' && tp.group === store && !stillMoving && counts(get)) {
+      out.gotSum += q;
+      if (inner) out.intGot += q; else out.got[ropSide(fp)] += q;
+    }
+  }
+  return out;
+}
+
+/**
+ * Колонки «Пришло» и «Уехало». Первые две-три стоят всегда; «с технических»,
+ * «на технические» и «неопознанное» — только когда хоть у одной строки
+ * не ноль (правило владельца 22.08.2026: колонку из нулей не рисуем).
+ */
+var ROP_IN = [
+  { k: 'fresh', name: 'новый товар', always: true }, { k: 'cs', name: 'с ЦС', always: true },
+  { k: 'shops', name: 'из магазинов', always: true }, { k: 'tech', name: 'с технических' },
+  { k: 'other', name: 'из неопознанных мест' }
+];
+var ROP_OUT = [
+  { k: 'cs', name: 'на ЦС', always: true }, { k: 'shops', name: 'в магазины', always: true },
+  { k: 'tech', name: 'на технические' }, { k: 'other', name: 'в неопознанные места' }
+];
 
 viewRating = function (agg) {
   var data = ropStockRows();
   if (!data) return viewRatingBase(agg);
 
-  var i, h = '<section class="card"><div class="rating-head"><h2 class="card-title">Рейтинг</h2>' +
+  var i, j, h = '<section class="card"><div class="rating-head"><h2 class="card-title">Рейтинг</h2>' +
     '<div class="segmented" id="dimSeg" role="group" aria-label="Разрез">';
   for (i = 0; i < DIMS.length; i++) {
     h += '<button class="seg-btn' + (ST.dim === DIMS[i].k ? ' active' : '') + '" type="button" data-dim="' +
@@ -8940,11 +9046,25 @@ viewRating = function (agg) {
   for (i = 0; i < DIMS.length; i++) if (DIMS[i].k === ST.dim) box = agg[DIMS[i].box];
   box = box || {};
 
+  var split = data.splitOk;
+  // Перенос внутри магазина вычитается, только когда разбивка цела и перенос
+  // сходится в периоде (решение владельца 12.10.2026).
+  var dropInner = split && data.internalOk;
+
   var list = [], k;
   for (k in data.rows) {
-    if (Object.prototype.hasOwnProperty.call(data.rows, k) && ropAlive(data.rows[k])) {
-      list.push({ k: k, c: data.rows[k] });
-    }
+    if (!Object.prototype.hasOwnProperty.call(data.rows, k)) continue;
+    var c = data.rows[k].c, sp = data.rows[k].sp;
+    var inn = { fresh: c.arrived, cs: sp.got.cs, shops: sp.got.shops, tech: sp.got.tech, other: sp.got.other };
+    var out = { cs: sp.gave.cs, shops: sp.gave.shops, tech: sp.gave.tech, other: sp.gave.other };
+    if (!dropInner) { inn.shops += sp.intGot; out.shops += sp.intGave; }
+    var row = { k: k, c: c, inn: inn, out: out,
+      inSum: c.arrived + c.got - (dropInner ? sp.intGot : 0),
+      outSum: c.gave - (dropInner ? sp.intGave : 0),
+      inner: sp.intGot };
+    var alive = Math.abs(c.start) > 0.005 || Math.abs(row.inSum) > 0.005 || Math.abs(row.outSum) > 0.005 ||
+      Math.abs(c.sold) > 0.005 || Math.abs(c.left) > 0.005;
+    if (alive) list.push(row);
   }
   if (!list.length) {
     h += '<p class="empty">В этом магазине за выбранный период товара этого фильтра не было.</p></section>';
@@ -8955,37 +9075,81 @@ viewRating = function (agg) {
   list.sort(function (a, b) {
     return (b.c.sold - a.c.sold) || (b.c.left - a.c.left) || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0);
   });
-  var maxSold = 0, zero = 0, sum = { start: 0, got: 0, gave: 0, sold: 0, left: 0 };
+
+  var maxSold = 0, zero = 0, inner = 0;
+  var sum = { start: 0, sold: 0, left: 0, inSum: 0, outSum: 0, inn: {}, out: {} };
+  for (j = 0; j < ROP_IN.length; j++) sum.inn[ROP_IN[j].k] = 0;
+  for (j = 0; j < ROP_OUT.length; j++) sum.out[ROP_OUT[j].k] = 0;
+  var useIn = {}, useOut = {};
   for (i = 0; i < list.length; i++) {
-    var c = list[i].c;
-    maxSold = Math.max(maxSold, c.sold);
-    if (Math.abs(c.sold) <= 0.005) zero++;
-    sum.start += c.start; sum.got += c.arrived + c.got; sum.gave += c.gave;
-    sum.sold += c.sold; sum.left += c.left;
+    var r = list[i];
+    maxSold = Math.max(maxSold, r.c.sold);
+    if (Math.abs(r.c.sold) <= 0.005) zero++;
+    sum.start += r.c.start; sum.sold += r.c.sold; sum.left += r.c.left;
+    sum.inSum += r.inSum; sum.outSum += r.outSum; inner += r.inner;
+    for (j = 0; j < ROP_IN.length; j++) {
+      sum.inn[ROP_IN[j].k] += r.inn[ROP_IN[j].k];
+      if (Math.abs(r.inn[ROP_IN[j].k]) > 0.005) useIn[ROP_IN[j].k] = true;
+    }
+    for (j = 0; j < ROP_OUT.length; j++) {
+      sum.out[ROP_OUT[j].k] += r.out[ROP_OUT[j].k];
+      if (Math.abs(r.out[ROP_OUT[j].k]) > 0.005) useOut[ROP_OUT[j].k] = true;
+    }
   }
   maxSold = maxSold || 1;
+  var inCols = [], outCols = [];
+  if (split) {
+    for (j = 0; j < ROP_IN.length; j++) if (ROP_IN[j].always || useIn[ROP_IN[j].k]) inCols.push(ROP_IN[j]);
+    for (j = 0; j < ROP_OUT.length; j++) if (ROP_OUT[j].always || useOut[ROP_OUT[j].k]) outCols.push(ROP_OUT[j]);
+  }
   var totalRev = (agg.totals && agg.totals.revenue) || 0;
 
-  h += '<div class="table-scroll"><table class="rating-table" id="ropStockTable"><thead><tr>' +
-    '<th>Что</th><th>Было на начало</th><th>Пришло</th><th>Уехало</th><th>Продано</th><th>Осталось</th>' +
-    (ST.money ? '<th>Выручка, ₸</th><th>Доля</th>' : '') +
-    '<th>Скидка</th></tr></thead><tbody>';
+  // Шапка в два ряда: над частями — общее имя «Пришло» / «Уехало».
+  // data-inner — сколько штук переноса вычтено: самотест сверяет итог с плитками.
+  h += '<div class="table-scroll"><table class="rating-table" id="ropStockTable"' +
+    ' data-split="' + (split ? '1' : '0') + '" data-inner="' + (dropInner ? inner : 0) + '"><thead>';
+  if (split) {
+    h += '<tr><th rowspan="2">Что</th><th rowspan="2" data-col="start">Было на начало</th>' +
+      '<th colspan="' + inCols.length + '" class="rop-group" style="text-align:center">Пришло</th>' +
+      '<th colspan="' + outCols.length + '" class="rop-group" style="text-align:center">Уехало</th>' +
+      '<th rowspan="2" data-col="sold">Продано</th><th rowspan="2" data-col="left">Осталось</th>' +
+      (ST.money ? '<th rowspan="2">Выручка, ₸</th><th rowspan="2">Доля</th>' : '') +
+      '<th rowspan="2">Скидка</th></tr><tr>';
+    for (j = 0; j < inCols.length; j++) h += '<th data-col="in">' + esc(inCols[j].name) + '</th>';
+    for (j = 0; j < outCols.length; j++) h += '<th data-col="out">' + esc(outCols[j].name) + '</th>';
+    h += '</tr>';
+  } else {
+    h += '<tr><th>Что</th><th data-col="start">Было на начало</th><th data-col="in">Пришло</th>' +
+      '<th data-col="out">Уехало</th><th data-col="sold">Продано</th><th data-col="left">Осталось</th>' +
+      (ST.money ? '<th>Выручка, ₸</th><th>Доля</th>' : '') + '<th>Скидка</th></tr>';
+  }
+  h += '</thead><tbody>';
+
+  function cells(inn, outv, inSum, outSum, bold) {
+    var s = '', b0 = bold ? '<b>' : '', b1 = bold ? '</b>' : '';
+    if (split) {
+      for (var q = 0; q < inCols.length; q++) s += '<td class="pctcell">' + b0 + fmtQty(inn[inCols[q].k]) + b1 + '</td>';
+      for (q = 0; q < outCols.length; q++) s += '<td class="pctcell">' + b0 + fmtQty(outv[outCols[q].k]) + b1 + '</td>';
+    } else {
+      s += '<td class="pctcell">' + b0 + fmtQty(inSum) + b1 + '</td><td class="pctcell">' + b0 + fmtQty(outSum) + b1 + '</td>';
+    }
+    return s;
+  }
+
   for (i = 0; i < list.length; i++) {
-    var r = list[i].c, v = box[list[i].k];
-    h += '<tr><td>' + esc(list[i].k) + '</td>' +
-      '<td class="pctcell">' + fmtQty(r.start) + '</td>' +
-      '<td class="pctcell">' + fmtQty(r.arrived + r.got) + '</td>' +
-      '<td class="pctcell">' + fmtQty(r.gave) + '</td>' +
-      plainCell(r.sold, maxSold) +
-      '<td class="pctcell' + (r.left < -0.05 ? ' neg' : '') + '">' + fmtQty(r.left) + '</td>' +
+    var rr = list[i], v = box[rr.k];
+    h += '<tr><td>' + esc(rr.k) + '</td>' +
+      '<td class="pctcell">' + fmtQty(rr.c.start) + '</td>' +
+      cells(rr.inn, rr.out, rr.inSum, rr.outSum, false) +
+      plainCell(rr.c.sold, maxSold) +
+      '<td class="pctcell' + (rr.c.left < -0.05 ? ' neg' : '') + '">' + fmtQty(rr.c.left) + '</td>' +
       (ST.money ? '<td class="pctcell">' + (v ? money(v.revenue) : dash()) + '</td>' +
         '<td class="pctcell">' + (v ? pct1(safeDiv(v.revenue, totalRev)) : dash()) + '</td>' : '') +
       '<td class="pctcell">' + (v && v.discount != null ? pct(v.discount) : dash()) + '</td></tr>';
   }
   h += '<tr class="rop-total"><td><b>Итого</b></td>' +
     '<td class="pctcell"><b>' + fmtQty(sum.start) + '</b></td>' +
-    '<td class="pctcell"><b>' + fmtQty(sum.got) + '</b></td>' +
-    '<td class="pctcell"><b>' + fmtQty(sum.gave) + '</b></td>' +
+    cells(sum.inn, sum.out, sum.inSum, sum.outSum, true) +
     '<td class="pctcell"><b>' + fmtQty(sum.sold) + '</b></td>' +
     '<td class="pctcell"><b>' + fmtQty(sum.left) + '</b></td>' +
     (ST.money ? '<td class="pctcell"><b>' + money(totalRev) + '</b></td><td></td>' : '') +
@@ -8999,12 +9163,18 @@ viewRating = function (agg) {
     'как плитки «Показателей»: срез 1С плюс приход, перемещения и продажи. Поэтому в таблице есть ' +
     'и то, что лежит без продаж' + (zero ? ' (' + zero + ' ' + plural(zero, 'строка', 'строки', 'строк') + ' с нулём в «Продано»)' : '') +
     '. В каждой строке «Было на начало» + «Пришло» − «Уехало» − «Продано» = «Осталось». ' +
-    '«Пришло» — новый товар и приехавшее из других точек.' +
-    (diff != null && Math.abs(diff) > 0.05
-      ? ' «Продано» здесь складское; по чекам у магазина за период ' + fmtQty(chq) + ' шт, разница ' +
-        fmtQty(diff) + ' шт — интернет-продажи, коллективные чеки и свежесть данных (разобрано под плиткой «Продано» в «Показателях»).'
+    (split ? 'Технические склады — офис, ремонт брака, униформа, поставщик; это не ЦС. ' : '') +
+    (dropInner && inner > 0.005
+      ? 'Перенос между залом и своей подсобкой (' + fmtQty(inner) + ' шт) не считается ни в «Пришло», ни в «Уехало»; ' +
+        'в плитках «Показателей» он есть, поэтому там эти два числа больше на столько же. '
       : '') +
-    (ST.money ? ' Выручка, доля и скидка — по чекам.' : ' Скидка — по чекам.') +
+    (!split ? '<b>Разбивка «Пришло» и «Уехало» не показана:</b> её части не сложились в итог расчёта — это ошибка страницы. ' : '') +
+    (split && !dropInner ? 'Перенос между залом и подсобкой оставлен в «из магазинов» и «в магазины»: в этом периоде он не сходится. ' : '') +
+    (diff != null && Math.abs(diff) > 0.05
+      ? '«Продано» здесь складское; по чекам у магазина за период ' + fmtQty(chq) + ' шт, разница ' +
+        fmtQty(diff) + ' шт — интернет-продажи, коллективные чеки и свежесть данных (разобрано под плиткой «Продано» в «Показателях»). '
+      : '') +
+    (ST.money ? 'Выручка, доля и скидка — по чекам.' : 'Скидка — по чекам.') +
     (data.clipped ? ' Период начинается раньше среза 1С — остаток считается с ' + esc(humanIso(data.from)) + '.' : '') +
     (data.clippedEnd ? ' Перевозки в расчёте есть по ' + esc(humanIso(data.to)) + ' — дальше период подрезан.' : '') +
     '</p></section>';
